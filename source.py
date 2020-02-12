@@ -10,37 +10,37 @@ CQI-related functions
 '''
 '''
 # Find the SINR for the given CQI to approximately achieve the given BLER target
-def estimate_sinr_from_cqi(cqi):
+def estimate_sinr_from_cqi(cqi, awgn_data):
 
     REF_BLER_TARGET = 0.1
 
     awgn_snr_range_dB = awgn_data['snr_range_dB']
-    awgn_snr_vs_bler = awgn_data['snr_vs_bler']
+    awgn_snr_vs_per   = awgn_data['snr_vs_bler']
 
-    _, nrof_cqi = awgn_snr_vs_bler.shape
+    _, nrof_cqi = awgn_snr_vs_per.shape
 
-    bler = awgn_snr_vs_bler[:, cqi]
+    per = awgn_snr_vs_per[:, cqi]
 
     if cqi == 0:
         return np.min(awgn_snr_range_dB)
     elif cqi == nrof_cqi - 1:
         return np.max(awgn_snr_range_dB)
 
-    index1 = np.max(np.argwhere(REF_BLER_TARGET < bler))
-    index2 = np.min(np.argwhere(REF_BLER_TARGET > bler))
+    index1 = np.max(np.argwhere(REF_BLER_TARGET < per))
+    index2 = np.min(np.argwhere(REF_BLER_TARGET > per))
 
     estimated_sinr_dB = (awgn_snr_range_dB[index1] + awgn_snr_range_dB[index2]) / 2.0
 
     return estimated_sinr_dB
 
-def determine_mcs_from_sinr(sinr_dB, target_success_prob, mean_reward):
+def determine_mcs_from_sinr(sinr_dB, target_success_prob, mean_reward, awgn_data):
     awgn_snr_range_dB = awgn_data['snr_range_dB']
-    awgn_snr_vs_bler = awgn_data['snr_vs_bler']
+    awgn_snr_vs_per   = awgn_data['snr_vs_bler']
 
-    _, nrof_cqi = awgn_snr_vs_bler.shape
-    bler_target = 1.0 - target_success_prob
+    _, nrof_cqi = awgn_snr_vs_per.shape
+    per_target = 1.0 - target_success_prob
 
-    bler_at_snr = determine_bler_at_sinr(sinr_dB)
+    per_at_snr = determine_per_at_sinr(sinr_dB, awgn_data)
 
     # Find the largest MCS that has BLER less than the BLER target
     # The CQIs are evaluated in decreasing order and first value that predicts a BLER < 0.1
@@ -48,7 +48,7 @@ def determine_mcs_from_sinr(sinr_dB, target_success_prob, mean_reward):
     largest_mcs = 0
     for i in range(nrof_cqi):
         current_mcs = nrof_cqi - i - 1
-        if bler_at_snr[current_mcs] < bler_target:
+        if per_at_snr[current_mcs] < per_target:
             largest_mcs = current_mcs
             break
         else:
@@ -58,34 +58,34 @@ def determine_mcs_from_sinr(sinr_dB, target_success_prob, mean_reward):
     best_mcs = 0
     best_expected_tput = 0
     for i in range( largest_mcs ):
-        expected_tput = ( 1 - bler_at_snr[ i ] ) * float( mean_reward[ i ] )
+        expected_tput = ( 1 - per_at_snr[ i ] ) * float( mean_reward[ i ] )
         if expected_tput > best_expected_tput:
             best_expected_tput = expected_tput
             best_mcs = i
 
     return best_mcs
 
-def determine_bler_at_sinr(sinr_dB):
+def determine_per_at_sinr(sinr_dB, awgn_data):
     awgn_snr_range_dB = awgn_data['snr_range_dB']
-    awgn_snr_vs_bler = awgn_data['snr_vs_bler']
+    awgn_snr_vs_per   = awgn_data['snr_vs_bler']
 
-    _, nrof_cqi = awgn_snr_vs_bler.shape
+    _, nrof_cqi = awgn_snr_vs_per.shape
 
-    bler_at_sinr = np.ndarray((nrof_cqi, 1))
+    per_at_sinr = np.ndarray((nrof_cqi, 1))
 
     for i in range(nrof_cqi):
-        bler = awgn_snr_vs_bler[:, i]
+        per = awgn_snr_vs_per[:, i]
         if sinr_dB <= np.min(awgn_snr_range_dB):
-            bler_at_sinr[i] = 1.0
+            per_at_sinr[i] = 1.0
         elif sinr_dB >= np.max(awgn_snr_range_dB):
-            bler_at_sinr[i] = 0.0
+            per_at_sinr[i] = 0.0
         else:
             index1 = np.max(np.argwhere(awgn_snr_range_dB < sinr_dB))
             index2 = np.min(np.argwhere(awgn_snr_range_dB > sinr_dB))
 
-            bler_at_sinr[i] = (bler[index1] + bler[index2]) / 2.0
+            per_at_sinr[i] = (per[index1] + per[index2]) / 2.0
 
-    return bler_at_sinr
+    return per_at_sinr
 
 '''
 '''
@@ -95,8 +95,8 @@ Environment
 '''
 '''
 class Environment():
-    def __init__(self, success_prob, nonstationary=False, interval=1):
-        self.success_prob = success_prob
+    def __init__(self, packet_error_ratios, nonstationary=False, interval=1):
+        self.success_prob = [1.0 - per for per in packet_error_ratios]
         
         self.nonstationary = nonstationary
         self.interval = interval
@@ -127,7 +127,7 @@ class Environment():
     # Success probability vectors are provided as array of arrays
     def calculate_success_prob(self, t):
         nrof_prob_vectors = len(self.success_prob)
-        nrof_arms = len(self.success_prob[0])
+        nrof_rates = len(self.success_prob[0])
         
         interval_start = int(t / self.interval) * self.interval
         
@@ -135,7 +135,7 @@ class Environment():
         second_prob_index = (int(t / self.interval) + 1) % nrof_prob_vectors
         
         success_prob = []
-        for arm in range(nrof_arms):
+        for arm in range(nrof_rates):
             a = self.success_prob[first_prob_index][arm]
             b = self.success_prob[second_prob_index][arm]
             
@@ -153,27 +153,27 @@ Base Constrained Bandit
 '''
 '''
 '''
-# nrof_arms: Number of bandit arms (K)
-# reward_value: Reward value for each arm (r_k) if successful
+# nrof_rates: Number of bandit arms (K)
+# packet_sizes: Reward value for each arm (r_k) if successful
 # target_success_prob: Target success probability
 # window_size: Window size for sliding window bandit. Events outside the window are discarded
 class BaseConstrainedBandit():
     def __init__(self, 
-                 nrof_arms, 
-                 reward_value, 
-                 target_success_prob=0.0,
+                 nrof_rates, 
+                 packet_sizes, 
+                 target_per,
                  window_size=np.Inf):
         
-        self.nrof_arms = nrof_arms
-        self.reward_value = reward_value
+        self.nrof_rates = nrof_rates
+        self.packet_sizes = packet_sizes
         
-        self.target_success_prob = target_success_prob
+        self.target_success_prob = 1.0 - target_per
         self.window_size = window_size
         
         self.t = 0
         
-        self.pull_count = [0 for _ in range(self.nrof_arms)]
-        self.success_count = [0 for _ in range(self.nrof_arms)]
+        self.pull_count = [0 for _ in range(self.nrof_rates)]
+        self.success_count = [0 for _ in range(self.nrof_rates)]
         
         self.pulled_arm = []
         self.observed_success = []
@@ -204,14 +204,14 @@ class BaseConstrainedBandit():
     # Calculate the selection probability vector by solving a linear program
     def calculate_selection_probabilities(self, success_prob, tolerance=1e-5):
 
-        c = matrix(-1 * np.array(success_prob) * np.array(self.reward_value))
+        c = matrix(-1 * np.array(success_prob) * np.array(self.packet_sizes))
 
         neg_success_prob = [-1.0 * r for r in success_prob]
         
-        G = matrix(np.vstack([neg_success_prob, -1.0 * np.eye(self.nrof_arms)]))
-        h = matrix(np.append(-1 * self.target_success_prob, np.zeros((1, self.nrof_arms))))
+        G = matrix(np.vstack([neg_success_prob, -1.0 * np.eye(self.nrof_rates)]))
+        h = matrix(np.append(-1 * self.target_success_prob, np.zeros((1, self.nrof_rates))))
 
-        A = matrix(np.ones((1, self.nrof_arms)))
+        A = matrix(np.ones((1, self.nrof_rates)))
         b = matrix([1.0])
 
         sol = solvers.lp(c, G, h, A, b)
@@ -234,7 +234,7 @@ class BaseConstrainedBandit():
             # return dependent_rounding(prob)
         except: # Throws ValueError somtimes
             print('Error thrown by prob sampling. Returning random sample')
-            return np.random.randint(0, self.nrof_arms)
+            return np.random.randint(0, self.nrof_rates)
         
 '''
 '''
@@ -243,18 +243,18 @@ Oracle Constrained Bandit
 '''
 '''
 '''
-# nrof_arms: Number of bandit arms (K)
-# reward_value: Reward value for each arm (r_k) if successful
+# nrof_rates: Number of bandit arms (K)
+# packet_sizes: Reward value for each arm (r_k) if successful
 # target_success_prob: Target success probability
 # success_prob: Success probability for each bandit arm
 class OracleConstrainedBandit(BaseConstrainedBandit):
     def __init__(self, 
-                 nrof_arms, 
-                 reward_value, 
-                 target_success_prob=0.0,
+                 nrof_rates, 
+                 packet_sizes, 
+                 target_per,
                  env_instance=None):
         
-        super().__init__(nrof_arms, reward_value, target_success_prob)
+        super().__init__(nrof_rates, packet_sizes, target_per)
         self.env = env_instance
     
     # Determine which arm to be pulled
@@ -283,18 +283,18 @@ Provides:
     
 class ThompsonSamplingBandit(BaseConstrainedBandit):
     def __init__(self, 
-                 nrof_arms, 
-                 reward_value, 
-                 target_success_prob=0.0,
+                 nrof_rates, 
+                 packet_sizes, 
+                 target_per,
                  window_size=np.Inf,
                  unimodal=False,
                  prior_success_mean=[]):
         
-        super().__init__(nrof_arms, reward_value, target_success_prob, window_size)
+        super().__init__(nrof_rates, packet_sizes, target_per, window_size)
         
         # Exploit Unimodality
         self.unimodal = unimodal
-        self.leader_count = [0 for _ in range(nrof_arms)]
+        self.leader_count = [0 for _ in range(nrof_rates)]
         self.gamma = 2
         
         # Exploit prior knowledge
@@ -302,7 +302,7 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
             self.informed_prior = True
             
             prior_weight = 10
-            for arm in range(self.nrof_arms):
+            for arm in range(self.nrof_rates):
                 self.success_count[arm] = 1 + int(prior_weight * prior_success_mean[arm])
                 
                 fail_count = 1 + int(prior_weight * (1.0 - prior_success_mean[arm]))
@@ -314,7 +314,7 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
     def act(self):
         # Ensure that each arm is pulled at least once
         if not self.informed_prior:
-            if self.t < self.nrof_arms:
+            if self.t < self.nrof_rates:
                 return self.t
         
         # Sample a success probability from beta distribution Beta(a, b)
@@ -322,14 +322,14 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
         # and   b = 1 + self.pull_count[arm] - self.success_count[arm]
         sampled_success_prob = [ np.random.beta(1 + self.success_count[arm], 
                                                 1 + self.pull_count[arm] - self.success_count[arm]) 
-                                for arm in range(self.nrof_arms)]
+                                for arm in range(self.nrof_rates)]
         
         #if self.t % 1000 == 0:
         #    print(sampled_reward_event_prob)
         #    print([x + y for x, y in zip(self.reward_event_count, self.no_reward_event_count)])
         
         if self.unimodal:
-            sampled_expected_rewards = [(suc * rew) for suc, rew in zip(sampled_success_prob, self.reward_value)]
+            sampled_expected_rewards = [(suc * rew) for suc, rew in zip(sampled_success_prob, self.packet_sizes)]
             return self.best_arm_unimodal(sampled_expected_rewards)
         
         # Success probability constraint through linear programming
@@ -338,16 +338,16 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
             #if self.t % 1000 == 0:
             #    print('No solution found!')
                 
-            #return np.random.randint(0, self.nrof_arms)
-            sampled_expected_rewards = [(suc * rew) for suc, rew in zip(sampled_success_prob, self.reward_value)]
+            #return np.random.randint(0, self.nrof_rates)
+            sampled_expected_rewards = [(suc * rew) for suc, rew in zip(sampled_success_prob, self.packet_sizes)]
             return np.argmax(sampled_expected_rewards)
         else:
             return self.sample_prob_selection_vector(ts_prob)   
         
     # Estimate the best arm as per the Unimodal Thompson Sampling algorithm
     def best_arm_unimodal(self, sampled_success_prob):
-        emprical_mean = [(self.success_count[i] / self.pull_count[i]) for i in range(self.nrof_arms)]
-        expected_mean_reward = [(mean * rew) for mean, rew in zip(emprical_mean, self.reward_value)]
+        emprical_mean = [(self.success_count[i] / self.pull_count[i]) for i in range(self.nrof_rates)]
+        expected_mean_reward = [(mean * rew) for mean, rew in zip(emprical_mean, self.packet_sizes)]
         
         leader_arm = np.argmax(expected_mean_reward)
         l_n = self.leader_count[leader_arm]
@@ -356,21 +356,21 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
             best_arm = leader_arm
         else:
             expected_sampled_reward = [(suc_prob * rew) for suc_prob, rew in zip(sampled_success_prob, 
-                                                                                 self.reward_value)]
+                                                                                 self.packet_sizes)]
             
             if leader_arm < 2:
                 if expected_sampled_reward[0] > expected_sampled_reward[1]:
                     best_arm = 0
                 else:
                     best_arm = 1
-            elif leader_arm < self.nrof_arms - 1:
+            elif leader_arm < self.nrof_rates - 1:
                 neighborhood_reward = expected_sampled_reward[leader_arm - 1 : leader_arm + 2]
                 best_arm = (leader_arm - 1) + np.argmax(neighborhood_reward)
             else:
-                if expected_sampled_reward[self.nrof_arms - 2] > expected_sampled_reward[self.nrof_arms - 1]:
-                    best_arm = self.nrof_arms - 2
+                if expected_sampled_reward[self.nrof_rates - 2] > expected_sampled_reward[self.nrof_rates - 1]:
+                    best_arm = self.nrof_rates - 2
                 else:
-                    best_arm = self.nrof_arms - 1
+                    best_arm = self.nrof_rates - 1
 
         self.leader_count[best_arm] += 1
 
@@ -387,14 +387,16 @@ Outer Loop Link Adaptation: Bandit-like interface for OLLA
 
 class OuterLoopLinkAdaptation(BaseConstrainedBandit):
     def __init__(self, 
-                 nrof_arms, 
-                 reward_value, 
-                 target_success_prob=0.0,
+                 nrof_rates, 
+                 packet_sizes, 
+                 awgn_data,
+                 target_per,
                  window_size=np.Inf,
                  cqi=-1):
         
-        super().__init__(nrof_arms, reward_value, target_success_prob, window_size)
+        super().__init__(nrof_rates, packet_sizes, target_per, window_size)
         
+        self.awgn_data = awgn_data
         self.cqi = cqi
 
         self.sinr_offset = 0.0
@@ -424,9 +426,9 @@ class OuterLoopLinkAdaptation(BaseConstrainedBandit):
         if self.cqi == 0:
             arm = 0
         else:
-            estimated_sinr = estimate_sinr_from_cqi(self.cqi)
+            estimated_sinr = estimate_sinr_from_cqi(self.cqi, self.awgn_data )
             adjusted_sinr = estimated_sinr + self.sinr_offset
 
-            arm = determine_mcs_from_sinr(adjusted_sinr, self.target_success_prob, self.reward_value)
+            arm = determine_mcs_from_sinr(adjusted_sinr, self.target_success_prob, self.packet_sizes, self.awgn_data )
 
         return arm
