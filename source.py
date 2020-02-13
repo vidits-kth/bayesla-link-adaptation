@@ -1,3 +1,4 @@
+import itpp
 import numpy as np
 from cvxopt import matrix, solvers
 
@@ -33,22 +34,22 @@ def estimate_sinr_from_cqi(cqi, awgn_data):
 
     return estimated_sinr_dB
 
-def determine_mcs_from_sinr(sinr_dB, target_success_prob, mean_reward, awgn_data):
+def determine_cqi_from_sinr(snr_dB, packet_sizes, awgn_data):
     awgn_snr_range_dB = awgn_data['snr_range_dB']
     awgn_snr_vs_per   = awgn_data['snr_vs_bler']
 
     _, nrof_cqi = awgn_snr_vs_per.shape
-    per_target = 1.0 - target_success_prob
+    REF_BLER_TARGET = 0.1
 
-    per_at_snr = determine_per_at_sinr(sinr_dB, awgn_data)
+    per_at_snr = determine_per_at_sinr(snr_dB, awgn_data)
 
     # Find the largest MCS that has BLER less than the BLER target
     # The CQIs are evaluated in decreasing order and first value that predicts a BLER < 0.1
     # is returned.
     largest_mcs = 0
-    for i in range(nrof_cqi):
+    for i in range( nrof_cqi ):
         current_mcs = nrof_cqi - i - 1
-        if per_at_snr[current_mcs] < per_target:
+        if per_at_snr[current_mcs] < REF_BLER_TARGET:
             largest_mcs = current_mcs
             break
         else:
@@ -58,30 +59,30 @@ def determine_mcs_from_sinr(sinr_dB, target_success_prob, mean_reward, awgn_data
     best_mcs = 0
     best_expected_tput = 0
     for i in range( largest_mcs ):
-        expected_tput = ( 1 - per_at_snr[ i ] ) * float( mean_reward[ i ] )
+        expected_tput = ( 1 - per_at_snr[ i ] ) * float( packet_sizes[ i ] )
         if expected_tput > best_expected_tput:
             best_expected_tput = expected_tput
             best_mcs = i
 
     return best_mcs
 
-def determine_per_at_sinr(sinr_dB, awgn_data):
+def determine_per_at_sinr(snr_dB, awgn_data):
     awgn_snr_range_dB = awgn_data['snr_range_dB']
     awgn_snr_vs_per   = awgn_data['snr_vs_bler']
 
     _, nrof_cqi = awgn_snr_vs_per.shape
 
-    per_at_sinr = np.ndarray((nrof_cqi, 1))
+    per_at_sinr = np.ndarray((nrof_cqi))
 
     for i in range(nrof_cqi):
         per = awgn_snr_vs_per[:, i]
-        if sinr_dB <= np.min(awgn_snr_range_dB):
+        if snr_dB <= np.min(awgn_snr_range_dB):
             per_at_sinr[i] = 1.0
-        elif sinr_dB >= np.max(awgn_snr_range_dB):
+        elif snr_dB >= np.max(awgn_snr_range_dB):
             per_at_sinr[i] = 0.0
         else:
-            index1 = np.max(np.argwhere(awgn_snr_range_dB < sinr_dB))
-            index2 = np.min(np.argwhere(awgn_snr_range_dB > sinr_dB))
+            index1 = np.max(np.argwhere(awgn_snr_range_dB < snr_dB))
+            index2 = np.min(np.argwhere(awgn_snr_range_dB > snr_dB))
 
             per_at_sinr[i] = (per[index1] + per[index2]) / 2.0
 
@@ -94,57 +95,30 @@ Environment
 '''
 '''
 '''
-class Environment():
-    def __init__(self, packet_error_ratios, nonstationary=False, interval=1):
-        self.success_prob = [1.0 - per for per in packet_error_ratios]
-        
-        self.nonstationary = nonstationary
-        self.interval = interval
-         
-    def pull(self, arm, t):
-        if not self.nonstationary:
-            if np.random.rand() < self.success_prob[arm]:
-                return 1 # Success event
-            else:
-                return 0 # No reward event
-            
-        else:
-            success_prob = self.calculate_success_prob(t)
-            
-            if np.random.rand() < success_prob[arm]:
-                return 1 # Success event
-            else:
-                return 0 # No reward event
-            
-    # Return the success probability for Oracle and for debugging purposes
-    def get_success_prob(self, t):
-        if not self.nonstationary:
-            return self.success_prob
-        else:
-            return self.calculate_success_prob(t)
+def simluate_rayleigh_fading_channel( nrof_samples, avg_snr_dB, awgn_data, packet_sizes, norm_doppler = 0.01, seed = 9999 ):
     
-    # Cycle linearly between the provided success probability vectors
-    # Success probability vectors are provided as array of arrays
-    def calculate_success_prob(self, t):
-        nrof_prob_vectors = len(self.success_prob)
-        nrof_rates = len(self.success_prob[0])
-        
-        interval_start = int(t / self.interval) * self.interval
-        
-        first_prob_index = int(t / self.interval) % nrof_prob_vectors
-        second_prob_index = (int(t / self.interval) + 1) % nrof_prob_vectors
-        
-        success_prob = []
-        for arm in range(nrof_rates):
-            a = self.success_prob[first_prob_index][arm]
-            b = self.success_prob[second_prob_index][arm]
-            
-            # Interpolate linearly between a and b
-            prob = (a + (t - interval_start) * (b - a) / self.interval)
-            
-            success_prob.append(prob)
-            
-        return success_prob
+    # Create a Rayleigh fading channel. The channel power is normalized to 1 by default
+    channel = itpp.comm.TDL_Channel( itpp.vec('0.0'), itpp.ivec('0') ) 
+    channel.set_norm_doppler(norm_doppler)
+
+    channel_coeff_itpp = itpp.cmat()
+    channel.generate(nrof_samples, channel_coeff_itpp)
+
+    channel_coeff = np.array( channel_coeff_itpp.get_col( 0 ) )
+    
+    avg_snr = 10 ** (0.1 * avg_snr_dB)
+    instantaneous_channel_snrs = ( np.absolute( channel_coeff ) ** 2 ) * avg_snr
+    
+    _, nrof_rates = awgn_data['snr_vs_bler'].shape
+    instantaneous_pers      = []
+    channel_quality_indices = []
+    for i in range( nrof_samples ):
+        snr_dB = 10 * np.log10( instantaneous_channel_snrs[i] )
+        instantaneous_pers.append( determine_per_at_sinr( snr_dB, awgn_data ) )
+        channel_quality_indices.append( determine_cqi_from_sinr( snr_dB, packet_sizes, awgn_data) ) 
+    
+    return ( np.array( instantaneous_pers ), np.array( channel_quality_indices ) )
+    
 
 '''
 '''
@@ -161,45 +135,33 @@ class BaseConstrainedBandit():
     def __init__(self, 
                  nrof_rates, 
                  packet_sizes, 
-                 target_per,
-                 window_size=np.Inf):
+                 target_per):
         
+        solvers.options['show_progress'] = False
+        solvers.options['glpk'] = dict(msg_lev='GLP_MSG_OFF')
+
         self.nrof_rates = nrof_rates
         self.packet_sizes = packet_sizes
         
         self.target_success_prob = 1.0 - target_per
-        self.window_size = window_size
         
-        self.t = 0
+        nrof_cqis = nrof_rates
         
-        self.pull_count = [0 for _ in range(self.nrof_rates)]
-        self.success_count = [0 for _ in range(self.nrof_rates)]
-        
-        self.pulled_arm = []
-        self.observed_success = []
+        self.ack_count  = np.zeros( ( nrof_rates, nrof_cqis ) )
+        self.nack_count = np.zeros( ( nrof_rates, nrof_cqis ) )
        
     # Determine which arm to be pulled
-    def act(self): # Implemented in child classes
+    def act(self, cqi): # Implemented in child classes
         pass
     
     # Update the bandit
-    def update(self, arm, success):  
-        self.t += 1
-                
-        self.pull_count[arm] += 1       
-        self.success_count[arm] += success
+    def update(self, rate_index, cqi, ack):  
+        #self.t += 1
         
-        if not self.window_size == np.Inf:
-            self.pulled_arm.append(arm)
-            self.observed_success.append(success)
-            
-            if self.t > self.window_size:
-                obsolete_arm = self.pulled_arm[self.t - self.window_size - 1]
-                obsolete_success = self.observed_success[self.t - self.window_size - 1]
-                
-                if self.pull_count[obsolete_arm] > 1:
-                    self.pull_count[obsolete_arm] -= 1
-                    self.success_count[obsolete_arm] -= obsolete_success
+        if ack:
+            self.ack_count[ rate_index, cqi ] += 1
+        else:
+            self.nack_count[ rate_index, cqi ] += 1
          
     # Calculate the selection probability vector by solving a linear program
     def calculate_selection_probabilities(self, success_prob, tolerance=1e-5):
@@ -286,16 +248,9 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
                  nrof_rates, 
                  packet_sizes, 
                  target_per,
-                 window_size=np.Inf,
-                 unimodal=False,
                  prior_success_mean=[]):
         
-        super().__init__(nrof_rates, packet_sizes, target_per, window_size)
-        
-        # Exploit Unimodality
-        self.unimodal = unimodal
-        self.leader_count = [0 for _ in range(nrof_rates)]
-        self.gamma = 2
+        super().__init__(nrof_rates, packet_sizes, target_per)
         
         # Exploit prior knowledge
         if not prior_success_mean == []:
@@ -311,71 +266,38 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
             self.informed_prior = False
                 
     # Determine which arm to be pulled
-    def act(self):
+    def act(self, cqi):
         # Ensure that each arm is pulled at least once
-        if not self.informed_prior:
-            if self.t < self.nrof_rates:
-                return self.t
+#        if not self.informed_prior:
+#            if self.t < self.nrof_rates:
+#                return self.t
         
         # Sample a success probability from beta distribution Beta(a, b)
-        # where a = 1 + self.success_count[arm]
-        # and   b = 1 + self.pull_count[arm] - self.success_count[arm]
-        sampled_success_prob = [ np.random.beta(1 + self.success_count[arm], 
-                                                1 + self.pull_count[arm] - self.success_count[arm]) 
-                                for arm in range(self.nrof_rates)]
+        # where a = 1 + self.ack_count[ cqi, rate_index ]
+        # and   b = 1 + self.nack_count[ cqi, rate_index ]
+        sampled_success_prob = [ np.random.beta(1 + self.ack_count[ rate_index, cqi  ], 
+                                                1 + self.nack_count[ rate_index, cqi ] ) 
+                                for rate_index in range(self.nrof_rates)]
         
+        #sampled_expected_rewards = [(suc * rew) for suc, rew in zip(sampled_success_prob, self.packet_sizes)]
+        #return np.argmax(sampled_expected_rewards)
+            
         #if self.t % 1000 == 0:
         #    print(sampled_reward_event_prob)
         #    print([x + y for x, y in zip(self.reward_event_count, self.no_reward_event_count)])
         
-        if self.unimodal:
-            sampled_expected_rewards = [(suc * rew) for suc, rew in zip(sampled_success_prob, self.packet_sizes)]
-            return self.best_arm_unimodal(sampled_expected_rewards)
-        
         # Success probability constraint through linear programming
-        ts_prob = self.calculate_selection_probabilities(sampled_success_prob)
-        if None in ts_prob: # Unsolvable optimization
+        selection_probabilities = self.calculate_selection_probabilities(sampled_success_prob)
+        if None in selection_probabilities: # Unsolvable optimization
             #if self.t % 1000 == 0:
             #    print('No solution found!')
                 
-            #return np.random.randint(0, self.nrof_rates)
-            sampled_expected_rewards = [(suc * rew) for suc, rew in zip(sampled_success_prob, self.packet_sizes)]
-            return np.argmax(sampled_expected_rewards)
+            return np.random.randint(0, self.nrof_rates)
+            #sampled_expected_rewards = [(suc * rew) for suc, rew in zip(sampled_success_prob, self.packet_sizes)]
+            #return np.argmax(sampled_expected_rewards)
         else:
-            return self.sample_prob_selection_vector(ts_prob)   
+            return self.sample_prob_selection_vector( selection_probabilities )   
         
-    # Estimate the best arm as per the Unimodal Thompson Sampling algorithm
-    def best_arm_unimodal(self, sampled_success_prob):
-        emprical_mean = [(self.success_count[i] / self.pull_count[i]) for i in range(self.nrof_rates)]
-        expected_mean_reward = [(mean * rew) for mean, rew in zip(emprical_mean, self.packet_sizes)]
-        
-        leader_arm = np.argmax(expected_mean_reward)
-        l_n = self.leader_count[leader_arm]
-             
-        if (l_n - 1) % (self.gamma + 1) == 0:
-            best_arm = leader_arm
-        else:
-            expected_sampled_reward = [(suc_prob * rew) for suc_prob, rew in zip(sampled_success_prob, 
-                                                                                 self.packet_sizes)]
-            
-            if leader_arm < 2:
-                if expected_sampled_reward[0] > expected_sampled_reward[1]:
-                    best_arm = 0
-                else:
-                    best_arm = 1
-            elif leader_arm < self.nrof_rates - 1:
-                neighborhood_reward = expected_sampled_reward[leader_arm - 1 : leader_arm + 2]
-                best_arm = (leader_arm - 1) + np.argmax(neighborhood_reward)
-            else:
-                if expected_sampled_reward[self.nrof_rates - 2] > expected_sampled_reward[self.nrof_rates - 1]:
-                    best_arm = self.nrof_rates - 2
-                else:
-                    best_arm = self.nrof_rates - 1
-
-        self.leader_count[best_arm] += 1
-
-        return best_arm
-
 
 '''
 '''
@@ -391,44 +313,31 @@ class OuterLoopLinkAdaptation(BaseConstrainedBandit):
                  packet_sizes, 
                  awgn_data,
                  target_per,
-                 window_size=np.Inf,
-                 cqi=-1):
+                 olla_step_size = 0.1):
         
-        super().__init__(nrof_rates, packet_sizes, target_per, window_size)
+        super().__init__(nrof_rates, packet_sizes, target_per)
         
         self.awgn_data = awgn_data
-        self.cqi = cqi
 
         self.sinr_offset = 0.0
         self.olla_step_size = 0.1
-        
-        self.sinr_step_history = []
 
-    def update(self, arm, success):
-        if success:
-            sinr_step = self.olla_step_size
+    def update(self, rate_index, cqi, ack):
+        if ack:
             self.sinr_offset +=  self.olla_step_size
         else:
-            sinr_step = -1 * self.target_success_prob / (1.0 - self.target_success_prob) * self.olla_step_size 
+            self.sinr_offset -= self.target_success_prob / (1.0 - self.target_success_prob) * self.olla_step_size 
         
-        self.sinr_offset +=  sinr_step
-        
-        self.sinr_step_history.append(sinr_step)
-        
-        super().update(arm, success)
-        if self.t > self.window_size:
-            self.sinr_offset -= self.sinr_step_history[self.t - self.window_size - 1]
-        
+    def act(self, cqi):
 
-    def act(self):
-        arm = []
-
-        if self.cqi == 0:
-            arm = 0
+        if cqi == 0:
+            return 0
         else:
-            estimated_sinr = estimate_sinr_from_cqi(self.cqi, self.awgn_data )
+            estimated_sinr = estimate_sinr_from_cqi(cqi, self.awgn_data )
             adjusted_sinr = estimated_sinr + self.sinr_offset
 
-            arm = determine_mcs_from_sinr(adjusted_sinr, self.target_success_prob, self.packet_sizes, self.awgn_data )
+            per_at_snr = determine_per_at_sinr(adjusted_sinr, self.awgn_data)
+            
+            expected_rewards = [( (1.0 - per) * rew) for per, rew in zip(per_at_snr, self.packet_sizes)]
 
-        return arm
+            return np.argmax(expected_rewards)
