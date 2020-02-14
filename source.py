@@ -230,10 +230,6 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
                 
     # Determine which arm to be pulled
     def act(self, cqi):
-        # Ensure that each arm is pulled at least once
-#        if not self.informed_prior:
-#            if self.t < self.nrof_rates:
-#                return self.t
         
         # Sample a success probability from beta distribution Beta(a, b)
         # where a = 1 + self.ack_count[ cqi, rate_index ]
@@ -242,19 +238,9 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
                                                 1 + self.nack_count[ rate_index, cqi ] ) 
                                 for rate_index in range(self.nrof_rates)]
         
-        #sampled_expected_rewards = [(suc * rew) for suc, rew in zip(sampled_success_prob, self.packet_sizes)]
-        #return np.argmax(sampled_expected_rewards)
-            
-        #if self.t % 1000 == 0:
-        #    print(sampled_reward_event_prob)
-        #    print([x + y for x, y in zip(self.reward_event_count, self.no_reward_event_count)])
-        
         # Success probability constraint through linear programming
         selection_probabilities = self.calculate_selection_probabilities(sampled_success_prob)
         if None in selection_probabilities: # Unsolvable optimization
-            #if self.t % 1000 == 0:
-            #    print('No solution found!')
-                
             return np.random.randint(0, self.nrof_rates)
         else:
             return self.sample_prob_selection_vector( selection_probabilities )   
@@ -267,7 +253,6 @@ Outer Loop Link Adaptation: Bandit-like interface for OLLA
 '''
 '''
 '''
-
 class OuterLoopLinkAdaptation(BaseConstrainedBandit):
     def __init__(self, 
                  nrof_rates, 
@@ -291,14 +276,11 @@ class OuterLoopLinkAdaptation(BaseConstrainedBandit):
         
     def act(self, cqi):
 
-        if cqi == 0:
-            return 0
-        else:
-            estimated_sinr = estimate_sinr_from_cqi(cqi, self.awgn_data )
-            adjusted_sinr = estimated_sinr + self.sinr_offset
+        estimated_sinr = estimate_sinr_from_cqi(cqi, self.awgn_data )
+        adjusted_sinr = estimated_sinr + self.sinr_offset
 
-            per_at_snr = determine_per_at_sinr(adjusted_sinr, self.awgn_data)
-            
-            expected_rewards = [( (1.0 - per) * rew) for per, rew in zip(per_at_snr, self.packet_sizes)]
+        per_at_snr = determine_per_at_sinr(adjusted_sinr, self.awgn_data)
 
-            return np.argmax(expected_rewards)
+        expected_rewards = [( (1.0 - per) * rew) for per, rew in zip(per_at_snr, self.packet_sizes)]
+
+        return np.argmax(expected_rewards)
