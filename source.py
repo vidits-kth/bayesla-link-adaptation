@@ -10,25 +10,29 @@ CQI-related functions
 '''
 '''
 '''
-# Find the SINR for the given CQI to approximately achieve the given BLER target
+# Find the SINR for the given CQI to approximately achieve the given PER target
 def estimate_sinr_from_cqi(cqi, awgn_data):
 
-    REF_BLER_TARGET = 0.1
+    REF_PER_TARGET = 0.1
+    REF_MCS_INDICES = [0, 1, 3, 5, 8, 9, 11, 14, 16, 20, 22, 24, 27, 28, 28]
 
     awgn_snr_range_dB = awgn_data['snr_range_dB']
-    awgn_snr_vs_per   = awgn_data['snr_vs_bler']
+    awgn_snr_vs_per   = awgn_data['snr_vs_per']
 
     _, nrof_cqi = awgn_snr_vs_per.shape
 
-    per = awgn_snr_vs_per[:, cqi]
+    per = awgn_snr_vs_per[:, REF_MCS_INDICES[ cqi ] ]
 
     if cqi == 0:
         return np.min(awgn_snr_range_dB)
     elif cqi == nrof_cqi - 1:
         return np.max(awgn_snr_range_dB)
 
-    index1 = np.max(np.argwhere(REF_BLER_TARGET < per))
-    index2 = np.min(np.argwhere(REF_BLER_TARGET > per))
+    # Find the SNR indices closest to the REF_PER_TARGET.
+    # Estimate the instantaneous SNR by averaging these SNR values.
+    # This assumes that the reported CQI actually had a PER close to REF_PER_TARGET.
+    index1 = np.max(np.argwhere(REF_PER_TARGET < per))
+    index2 = np.min(np.argwhere(REF_PER_TARGET > per))
 
     estimated_sinr_dB = (awgn_snr_range_dB[index1] + awgn_snr_range_dB[index2]) / 2.0
 
@@ -36,43 +40,36 @@ def estimate_sinr_from_cqi(cqi, awgn_data):
 
 def determine_cqi_from_sinr(snr_dB, packet_sizes, awgn_data):
     awgn_snr_range_dB = awgn_data['snr_range_dB']
-    awgn_snr_vs_per   = awgn_data['snr_vs_bler']
+    awgn_snr_vs_per   = awgn_data['snr_vs_per']
 
-    _, nrof_cqi = awgn_snr_vs_per.shape
-    REF_BLER_TARGET = 0.1
+    REF_PER_TARGET  = 0.1
+    REF_MCS_INDICES = [0, 1, 3, 5, 8, 9, 11, 14, 16, 20, 22, 24, 27, 28, 28]
+    nrof_cqi = len( REF_MCS_INDICES )
 
-    per_at_snr = determine_per_at_sinr(snr_dB, awgn_data)
-
-    # Find the largest MCS that has BLER less than the BLER target
-    # The CQIs are evaluated in decreasing order and first value that predicts a BLER < 0.1
-    # is returned.
-    largest_mcs = 0
-    for i in range( nrof_cqi ):
-        current_mcs = nrof_cqi - i - 1
-        if per_at_snr[current_mcs] < REF_BLER_TARGET:
-            largest_mcs = current_mcs
-            break
-        else:
-            continue
-
-    # Determine the expected tput for all valid MCSs
-    best_mcs = 0
-    best_expected_tput = 0
-    for i in range( largest_mcs ):
-        expected_tput = ( 1 - per_at_snr[ i ] ) * float( packet_sizes[ i ] )
-        if expected_tput > best_expected_tput:
-            best_expected_tput = expected_tput
-            best_mcs = i
-
-    return best_mcs
+    # Estimate the PER for the reference MCSs used to calculate the CQI
+    per_at_snr = determine_per_at_sinr(snr_dB, awgn_data)[ REF_MCS_INDICES ]
+    
+    # Calculate expcted throughput for all valid MCSs
+    expected_tputs = np.multiply( ( 1 - per_at_snr ), np.array( packet_sizes )[ REF_MCS_INDICES ] )
+    
+    # Ignore any MCSs with PER less than REF_PER_TARGET
+    expected_tputs[ per_at_snr > 0.1 ] = 0
+    
+    # The CQI is the index of the highest-throuput MCS from the reference MCSs
+    cqi = 0
+    if len( expected_tputs ) > 0:
+        cqi = np.argmax( expected_tputs )
+    
+    return cqi
+    
 
 def determine_per_at_sinr(snr_dB, awgn_data):
     awgn_snr_range_dB = awgn_data['snr_range_dB']
-    awgn_snr_vs_per   = awgn_data['snr_vs_bler']
+    awgn_snr_vs_per   = awgn_data['snr_vs_per']
 
-    _, nrof_cqi = awgn_snr_vs_per.shape
+    _, nrof_mcs = awgn_snr_vs_per.shape
 
-    per_at_sinr = np.ndarray((nrof_cqi))
+    per_at_sinr = np.ndarray((nrof_mcs))
 
     for i in range(nrof_cqi):
         per = awgn_snr_vs_per[:, i]
@@ -109,7 +106,7 @@ def simluate_rayleigh_fading_channel( nrof_samples, avg_snr_dB, awgn_data, packe
     avg_snr = 10 ** (0.1 * avg_snr_dB)
     instantaneous_channel_snrs = ( np.absolute( channel_coeff ) ** 2 ) * avg_snr
     
-    _, nrof_rates = awgn_data['snr_vs_bler'].shape
+    _, nrof_rates = awgn_data['snr_vs_per'].shape
     instantaneous_pers      = []
     channel_quality_indices = []
     for i in range( nrof_samples ):
@@ -197,40 +194,6 @@ class BaseConstrainedBandit():
         except: # Throws ValueError somtimes
             print('Error thrown by prob sampling. Returning random sample')
             return np.random.randint(0, self.nrof_rates)
-        
-'''
-'''
-'''
-Oracle Constrained Bandit
-'''
-'''
-'''
-# nrof_rates: Number of bandit arms (K)
-# packet_sizes: Reward value for each arm (r_k) if successful
-# target_success_prob: Target success probability
-# success_prob: Success probability for each bandit arm
-class OracleConstrainedBandit(BaseConstrainedBandit):
-    def __init__(self, 
-                 nrof_rates, 
-                 packet_sizes, 
-                 target_per,
-                 env_instance=None):
-        
-        super().__init__(nrof_rates, packet_sizes, target_per)
-        self.env = env_instance
-    
-    # Determine which arm to be pulled
-    def act(self):
-        success_prob = self.env.get_success_prob(self.t)
-        selection_prob = self.calculate_selection_probabilities(success_prob)
-        
-       # print(success_prob)
-        
-        return self.sample_prob_selection_vector(selection_prob)
-    
-    # Get selection probabilties (for debugging purposes)
-    def get_selection_prob(self):
-        return self.prob
 
 '''
 '''
@@ -320,7 +283,7 @@ class OuterLoopLinkAdaptation(BaseConstrainedBandit):
         self.awgn_data = awgn_data
 
         self.sinr_offset = 0.0
-        self.olla_step_size = 0.1
+        self.olla_step_size = olla_step_size
 
     def update(self, rate_index, cqi, ack):
         if ack:
