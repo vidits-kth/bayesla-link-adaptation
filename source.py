@@ -71,7 +71,7 @@ def determine_per_at_sinr(snr_dB, awgn_data):
 
     per_at_sinr = np.ndarray((nrof_mcs))
 
-    for i in range(nrof_cqi):
+    for i in range(nrof_mcs):
         per = awgn_snr_vs_per[:, i]
         if snr_dB <= np.min(awgn_snr_range_dB):
             per_at_sinr[i] = 1.0
@@ -242,24 +242,22 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
                                                 1 + self.nack_count[ rate_index, cqi ] ) 
                                 for rate_index in range(self.nrof_rates)]
         
-        #sampled_expected_rewards = [(suc * rew) for suc, rew in zip(sampled_success_prob, self.packet_sizes)]
-        #return np.argmax(sampled_expected_rewards)
+        sampled_expected_rewards = [(suc * rew) for suc, rew in zip(sampled_success_prob, self.packet_sizes)]
+        return np.argmax(sampled_expected_rewards)
             
         #if self.t % 1000 == 0:
         #    print(sampled_reward_event_prob)
         #    print([x + y for x, y in zip(self.reward_event_count, self.no_reward_event_count)])
         
         # Success probability constraint through linear programming
-        selection_probabilities = self.calculate_selection_probabilities(sampled_success_prob)
-        if None in selection_probabilities: # Unsolvable optimization
+        #selection_probabilities = self.calculate_selection_probabilities(sampled_success_prob)
+        #if None in selection_probabilities: # Unsolvable optimization
             #if self.t % 1000 == 0:
             #    print('No solution found!')
                 
-            return np.random.randint(0, self.nrof_rates)
-            #sampled_expected_rewards = [(suc * rew) for suc, rew in zip(sampled_success_prob, self.packet_sizes)]
-            #return np.argmax(sampled_expected_rewards)
-        else:
-            return self.sample_prob_selection_vector( selection_probabilities )   
+        #    return np.random.randint(0, self.nrof_rates)
+        #else:
+        #    return self.sample_prob_selection_vector( selection_probabilities )   
         
 
 '''
