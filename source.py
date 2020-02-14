@@ -211,22 +211,17 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
                  nrof_rates, 
                  packet_sizes, 
                  target_per,
-                 prior_success_mean=[]):
+                 prior_per=[]):
         
         super().__init__(nrof_rates, packet_sizes, target_per)
         
         # Exploit prior knowledge
-        if not prior_success_mean == []:
-            self.informed_prior = True
-            
+        if not prior_per == []:            
             prior_weight = 10
-            for arm in range(self.nrof_rates):
-                self.success_count[arm] = 1 + int(prior_weight * prior_success_mean[arm])
-                
-                fail_count = 1 + int(prior_weight * (1.0 - prior_success_mean[arm]))
-                self.pull_count[arm] = self.success_count[arm] + fail_count
-        else:
-            self.informed_prior = False
+            for cqi in range( prior_per.shape[1] ):
+                for rate_index in range(self.nrof_rates):
+                    self.ack_count[rate_index, cqi] = 1 + int(prior_weight * ( 1.0 - prior_per[rate_index, cqi] ) )
+                    self.nack_count[rate_index, cqi] = 1 + int(prior_weight * prior_per[rate_index, cqi])
                 
     # Determine which arm to be pulled
     def act(self, cqi):
