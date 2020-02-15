@@ -38,7 +38,7 @@ def estimate_sinr_from_cqi(cqi, awgn_data):
 
     return estimated_sinr_dB
 
-def determine_cqi_from_sinr(snr_dB, packet_sizes, awgn_data):
+def determine_cqi_from_sinr(snr_dB, packet_sizes, awgn_data, cqi_sinr_error = 0.0):
     awgn_snr_range_dB = awgn_data['snr_range_dB']
     awgn_snr_vs_per   = awgn_data['snr_vs_per']
 
@@ -47,7 +47,7 @@ def determine_cqi_from_sinr(snr_dB, packet_sizes, awgn_data):
     nrof_cqi = len( REF_MCS_INDICES )
 
     # Estimate the PER for the reference MCSs used to calculate the CQI
-    per_at_snr = determine_per_at_sinr(snr_dB, awgn_data)[ REF_MCS_INDICES ]
+    per_at_snr = determine_per_at_sinr(snr_dB + cqi_sinr_error, awgn_data)[ REF_MCS_INDICES ]
     
     # Calculate expcted throughput for all valid MCSs
     expected_tputs = np.multiply( ( 1 - per_at_snr ), np.array( packet_sizes )[ REF_MCS_INDICES ] )
@@ -92,7 +92,7 @@ Environment
 '''
 '''
 '''
-def simluate_rayleigh_fading_channel( nrof_samples, avg_snr_dB, awgn_data, packet_sizes, norm_doppler = 0.01, seed = 9999 ):
+def simluate_rayleigh_fading_channel( nrof_samples, avg_snr_dB, awgn_data, packet_sizes, norm_doppler = 0.01, seed = 9999, cqi_error_std = 0.0 ):
     
     # Create a Rayleigh fading channel. The channel power is normalized to 1 by default
     channel = itpp.comm.TDL_Channel( itpp.vec('0.0'), itpp.ivec('0') ) 
@@ -106,13 +106,15 @@ def simluate_rayleigh_fading_channel( nrof_samples, avg_snr_dB, awgn_data, packe
     avg_snr = 10 ** (0.1 * avg_snr_dB)
     instantaneous_channel_snrs = ( np.absolute( channel_coeff ) ** 2 ) * avg_snr
     
+    cqi_sinr_error = itpp.random.randn( ) * cqi_error_std
+    
     _, nrof_rates = awgn_data['snr_vs_per'].shape
     instantaneous_pers      = []
     channel_quality_indices = []
     for i in range( nrof_samples ):
         snr_dB = 10 * np.log10( instantaneous_channel_snrs[i] )
         instantaneous_pers.append( determine_per_at_sinr( snr_dB, awgn_data ) )
-        channel_quality_indices.append( determine_cqi_from_sinr( snr_dB, packet_sizes, awgn_data) ) 
+        channel_quality_indices.append( determine_cqi_from_sinr( snr_dB, packet_sizes, awgn_data, cqi_sinr_error) ) 
     
     return ( np.array( instantaneous_pers ), np.array( channel_quality_indices ) )
     
@@ -220,6 +222,7 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
             prior_weight = 10
             for cqi in range( prior_per.shape[1] ):
                 for rate_index in range(self.nrof_rates):
+                    
                     self.ack_count[rate_index, cqi] = 1 + int(prior_weight * ( 1.0 - prior_per[rate_index, cqi] ) )
                     self.nack_count[rate_index, cqi] = 1 + int(prior_weight * prior_per[rate_index, cqi])
                 
