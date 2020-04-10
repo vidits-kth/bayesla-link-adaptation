@@ -14,7 +14,7 @@ CQI-related functions
 def estimate_sinr_from_cqi(cqi, awgn_data):
 
     REF_PER_TARGET = 0.1
-    REF_MCS_INDICES = [0, 1, 3, 5, 8, 9, 11, 14, 16, 20, 22, 24, 27, 28, 28]
+    REF_MCS_INDICES = [0, 1, 3, 5, 8, 9, 11, 14, 16, 20, 22, 24, 25, 26, 27, 28]
 
     awgn_snr_range_dB = awgn_data['snr_range_dB']
     awgn_snr_vs_per   = awgn_data['snr_vs_per']
@@ -43,7 +43,7 @@ def determine_cqi_from_sinr(snr_dB, packet_sizes, awgn_data, cqi_sinr_error = 0.
     awgn_snr_vs_per   = awgn_data['snr_vs_per']
 
     REF_PER_TARGET  = 0.1
-    REF_MCS_INDICES = [0, 1, 3, 5, 8, 9, 11, 14, 16, 20, 22, 24, 27, 28, 28]
+    REF_MCS_INDICES = [0, 1, 3, 5, 8, 9, 11, 14, 16, 20, 22, 24, 25, 26, 27, 28]
     nrof_cqi = len( REF_MCS_INDICES )
 
     # Estimate the PER for the reference MCSs used to calculate the CQI
@@ -73,6 +73,7 @@ def determine_per_at_sinr(snr_dB, awgn_data):
 
     for i in range(nrof_mcs):
         per = awgn_snr_vs_per[:, i]
+        
         if snr_dB <= np.min(awgn_snr_range_dB):
             per_at_sinr[i] = 1.0
         elif snr_dB >= np.max(awgn_snr_range_dB):
@@ -106,12 +107,12 @@ def simluate_rayleigh_fading_channel( nrof_samples, avg_snr_dB, awgn_data, packe
     avg_snr = 10 ** (0.1 * avg_snr_dB)
     instantaneous_channel_snrs = ( np.absolute( channel_coeff ) ** 2 ) * avg_snr
     
-    cqi_sinr_error = itpp.random.randn( ) * cqi_error_std
-    
     _, nrof_rates = awgn_data['snr_vs_per'].shape
     instantaneous_pers      = []
     channel_quality_indices = []
     for i in range( nrof_samples ):
+        cqi_sinr_error = ( itpp.random.randn( ) - 0.5 ) * cqi_error_std
+        
         snr_dB = 10 * np.log10( instantaneous_channel_snrs[i] )
         instantaneous_pers.append( determine_per_at_sinr( snr_dB, awgn_data ) )
         channel_quality_indices.append( determine_cqi_from_sinr( snr_dB, packet_sizes, awgn_data, cqi_sinr_error) ) 
