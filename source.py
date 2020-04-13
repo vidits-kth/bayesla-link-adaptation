@@ -224,8 +224,8 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
             for cqi in range( prior_per.shape[1] ):
                 for rate_index in range(self.nrof_rates):
                     
-                    self.ack_count[rate_index, cqi] = 1 + int(prior_weight * ( 1.0 - prior_per[rate_index, cqi] ) )
-                    self.nack_count[rate_index, cqi] = 1 + int(prior_weight * prior_per[rate_index, cqi])
+                    self.ack_count[rate_index, cqi] = 1 + prior_weight * ( 1.0 - prior_per[rate_index, cqi]  )
+                    self.nack_count[rate_index, cqi] = 1 + prior_weight * prior_per[rate_index, cqi]
                 
     # Determine which arm to be pulled
     def act(self, cqi):
