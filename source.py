@@ -233,8 +233,8 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
         # Sample a success probability from beta distribution Beta(a, b)
         # where a = 1 + self.ack_count[ cqi, rate_index ]
         # and   b = 1 + self.nack_count[ cqi, rate_index ]
-        sampled_success_prob = [ np.random.beta(self.ack_count[ rate_index, cqi  ], 
-                                                self.nack_count[ rate_index, cqi ] ) 
+        sampled_success_prob = [ np.random.beta(1 + self.ack_count[ rate_index, cqi  ], 
+                                                1 + self.nack_count[ rate_index, cqi ] ) 
                                 for rate_index in range(self.nrof_rates)]
         
         # Success probability constraint through linear programming
