@@ -214,13 +214,13 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
                  nrof_rates, 
                  packet_sizes, 
                  target_per,
-                 prior_per=[]):
+                 prior_per=[],
+                 prior_weight=10):
         
         super().__init__(nrof_rates, packet_sizes, target_per)
         
         # Exploit prior knowledge
         if not prior_per == []:  
-            prior_weight = 100
             for cqi in range( prior_per.shape[1] ):
                 for rate_index in range(self.nrof_rates):                    
                     prior_mu = 1.0 - prior_per[rate_index, cqi]
