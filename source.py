@@ -215,7 +215,7 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
                  packet_sizes, 
                  target_per,
                  prior_per=[],
-                 prior_weight=10):
+                 prior_weight=100):
         
         super().__init__(nrof_rates, packet_sizes, target_per)
         
@@ -224,8 +224,8 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
             for cqi in range( prior_per.shape[1] ):
                 for rate_index in range(self.nrof_rates):                    
                     prior_mu = 1.0 - prior_per[rate_index, cqi]
-                    self.ack_count[rate_index, cqi] = prior_weight * ( prior_mu  )
-                    self.nack_count[rate_index, cqi] = prior_weight * ( 1.0 - prior_mu )
+                    self.ack_count[rate_index, cqi] = int( prior_weight * ( prior_mu  ) )
+                    self.nack_count[rate_index, cqi] = int( prior_weight * ( 1.0 - prior_mu ) )
                 
     # Determine which arm to be pulled
     def act(self, cqi):
@@ -233,8 +233,8 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
         # Sample a success probability from beta distribution Beta(a, b)
         # where a = 1 + self.ack_count[ cqi, rate_index ]
         # and   b = 1 + self.nack_count[ cqi, rate_index ]
-        sampled_success_prob = [ np.random.beta(1 + self.ack_count[ rate_index, cqi  ], 
-                                                1 + self.nack_count[ rate_index, cqi ] ) 
+        sampled_success_prob = [ np.random.beta(self.ack_count[ rate_index, cqi  ], 
+                                                self.nack_count[ rate_index, cqi ] ) 
                                 for rate_index in range(self.nrof_rates)]
         
         # Success probability constraint through linear programming
