@@ -237,12 +237,16 @@ class ThompsonSamplingBandit(BaseConstrainedBandit):
                                                 1 + self.nack_count[ rate_index, cqi ] ) 
                                 for rate_index in range(self.nrof_rates)]
         
+        expected_rewards = [( s * rew) for s, rew in zip(sampled_success_prob, self.packet_sizes)]
+
+        return np.argmax(expected_rewards)
+    
         # Success probability constraint through linear programming
-        selection_probabilities = self.calculate_selection_probabilities(sampled_success_prob)
-        if None in selection_probabilities: # Unsolvable optimization
-            return np.random.randint(0, self.nrof_rates)
-        else:
-            return self.sample_prob_selection_vector( selection_probabilities )   
+#        selection_probabilities = self.calculate_selection_probabilities(sampled_success_prob)
+#        if None in selection_probabilities: # Unsolvable optimization
+#            return np.random.randint(0, self.nrof_rates)
+#        else:
+#            return self.sample_prob_selection_vector( selection_probabilities )   
         
 
 '''
